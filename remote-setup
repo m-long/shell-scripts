@@ -1,0 +1,165 @@
+#!/bin/bash
+# Script for configuring remote instance
+
+#### Global Variables
+
+user_name=
+
+### Helper Functions
+
+# Return true if argument is "Yes, yes, Y, or y."
+function if_yes(){
+  if [ $1 = "Yes"] | | [ $1 = "yes" ] || [ $1 = "Y" ] || [ $1 = "y" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Returns true if argument is "No, no, N, or n."
+function if_no(){
+  if [ $1 = "No" ] || [ $1 = "no"] || [ $1 = "N" ] || [$1 = "n" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Checks if user is superuser before allowing script to run
+function check_if_superuser{
+  if [$(id -u) != "0" ]; then
+    echo "You must have root privlidges to run this script." >&2
+    exit 1
+  fi
+}
+
+#### Functions
+
+# Makes user sudo; returns 1 if error, 0 if successful
+function make_user_sudo(){
+    $user_name = $1
+    # Make user sudo
+    sudo_counter=0
+    echo "Would you like to give user root privliges?"
+    read response
+    if [ if_yes $response ]; then
+      gpasswd -a $user_name sudo
+    elif [ if_no $response ]; then
+      echo "User will not have root privileges."
+    else
+      $sudo_counter++
+      if [ $sudo_counter >= 10 ]; then
+        echo "An error has occurred."
+        return 1
+      else
+        echo "Please choose an option (y/n)."
+      fi
+    fi
+    return 0
+}
+
+function add_new_user{
+  # Counter
+  counter=0
+
+  echo "Do you want to create a new user?"
+  read response
+  if [ if_yes $response ]; then
+    # Create User
+    user_counter=0
+    until [ id -u "$user_name" ]; do
+      echo "What would you like the user to be called?"
+      read $user_name
+      adduser $user_name
+      if [ id -u "$user_name" ]; then
+        echo "User $user_name has been created."
+      else
+        $user_counter++
+        if [$user_counter >= 10 ]; then
+          echo "An error has occurred."
+          exit 1
+        fi
+      fi
+    done
+    
+    # Exit if make-user_sudo fails
+    if [ make_user_sudo $user_name = 1 ]; then
+      exit 1
+    fi
+
+  elif [ if_no $response ]; then
+    echo "Not creating a new user."
+
+  else
+    $counter++
+    # Try 10 times then exit
+    if [ $counter >= 10]; then
+      echo "An error has occurred."
+      exit 1
+    else
+      Return "Please choose an option (y/n)."
+      add_new_user
+    fi
+  fi
+}
+
+function configure_ssh(){
+  echo "Please generate a key-pair on your local machine."
+  su - $user_name
+
+  if [ -d ~/.ssh ]; then
+    echo "~/.ssh directory already exists. Setting permissions to 700."
+    chmod 700 ~/.ssh
+  else
+    mkdir ~/.ssh
+    chmod 700 ~/.ssh
+    if [ ! -d ~/.ssh ]; then
+      echo "Could not create ~/.ssh directory."
+    fi
+  fi
+
+  echo -n "Creating authorized_keys..."
+  if [ ! -f ~/.ssh/ ]; then
+    touch ~/.ssh/authorized_keys
+    # Confirm it worked
+    if [ -f ~/.ssh/authorized_keys]; then
+      echo "Done"
+    else
+      echo "Error. Could not create file."
+    fi
+  elif [ -f ~/.ssh/authorized_keys]; then
+    echo "Authorized_keys already exists."
+  else
+    echo "An Unexpected Error has occurred."
+  fi
+}
+
+function disable_root_ssh_access(){
+  ssh_counter=0
+  echo "Do you want to create a new user?"
+  read response
+  if [ if_yes $response ]; then
+    echo "Disabling root SSH access."
+    sed -i -r 's/^#?(PermitRootLogin|PermitEmptyPasswords|X11Forwarding) yes/\1 no/' /etc/ssh/sshd_config
+    echo "Restarting SSH."
+    service ssh restart
+  elif [ if_no $response ]; then
+    echo "Will not disable root SSH access."
+  else
+    $ssh_counter++
+    if [ $ssh_counter = 10 ]; then
+      echo "An error has occurred."
+      return 1
+    else
+      echo "Please choose an option (y/n)."
+    fi
+  fi
+}
+
+#### Main
+
+check_if_superuser
+
+add_new_user
+
+disable_root_ssh_access
